@@ -205,14 +205,20 @@ dma_heap_alloc(uint64_t size)
       if (ion_heap < 0)
          return -1;
 
+      /* Xiaomi's 4.4 kernel exposes the legacy ION ABI.  Its allocation
+       * ioctl returns an opaque handle; exporting the dma-buf is a separate
+       * ION_IOC_SHARE operation.  The newer Qualcomm ABI used by this Mesa
+       * tree returns an fd directly and uses a smaller ioctl payload, which
+       * the legacy driver rejects with ENOTTY. */
       struct ion_allocation_data {
          __u64 len;
+         __u64 align;
          __u32 heap_id_mask;
          __u32 flags;
-         __u32 fd;
-         __u32 unused;
+         __u64 handle;
       } alloc_data = {
          .len = size,
+         .align = 4096,
          /* ION_HEAP_SYSTEM | ION_SYSTEM_HEAP_ID */
          .heap_id_mask = (1U << 0) | (1U << 25),
          .flags = 0, /* uncached */
@@ -221,12 +227,30 @@ dma_heap_alloc(uint64_t size)
       ret = kgsl_pipe_safe_ioctl(ion_heap, _IOWR('I', 0, struct ion_allocation_data),
                       &alloc_data);
 
+      if (ret) {
+         close(ion_heap);
+         return -1;
+      }
+
+      struct ion_fd_data {
+         __u64 handle;
+         __s32 fd;
+         __u32 unused;
+      } share_data = {
+         .handle = alloc_data.handle,
+         .fd = -1,
+      };
+
+      ret = kgsl_pipe_safe_ioctl(ion_heap, _IOWR('I', 4, struct ion_fd_data),
+                      &share_data);
+
+      /* The exported dma-buf owns the allocation after SHARE. */
       close(ion_heap);
 
       if (ret)
          return -1;
 
-      return alloc_data.fd;
+      return share_data.fd;
    } else {
       struct dma_heap_allocation_data alloc_data = {
          .len = size,
