@@ -215,7 +215,7 @@ dma_heap_alloc(uint64_t size)
          __u64 align;
          __u32 heap_id_mask;
          __u32 flags;
-         __u64 handle;
+         __s32 handle;
       } alloc_data = {
          .len = size,
          .align = 4096,
@@ -233,9 +233,8 @@ dma_heap_alloc(uint64_t size)
       }
 
       struct ion_fd_data {
-         __u64 handle;
+         __s32 handle;
          __s32 fd;
-         __u32 unused;
       } share_data = {
          .handle = alloc_data.handle,
          .fd = -1,
@@ -246,7 +245,7 @@ dma_heap_alloc(uint64_t size)
 
       const int share_errno = errno;
       struct ion_handle_data {
-         __u64 handle;
+         __s32 handle;
       } free_data = {
          .handle = alloc_data.handle,
       };
