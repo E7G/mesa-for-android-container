@@ -244,11 +244,27 @@ dma_heap_alloc(uint64_t size)
       ret = kgsl_pipe_safe_ioctl(ion_heap, _IOWR('I', 4, struct ion_fd_data),
                       &share_data);
 
-      /* The exported dma-buf owns the allocation after SHARE. */
+      const int share_errno = errno;
+      struct ion_handle_data {
+         __u64 handle;
+      } free_data = {
+         .handle = alloc_data.handle,
+      };
+
+      /* SHARE transfers memory lifetime to the dma-buf fd, but the temporary
+       * per-client ION handle must still be released or every allocation leaks
+       * one handle until the compositor exits. */
+      if (kgsl_pipe_safe_ioctl(ion_heap,
+                              _IOWR('I', 1, struct ion_handle_data),
+                              &free_data))
+         ERROR_MSG("Failed to release legacy ION handle (%s)", strerror(errno));
+
       close(ion_heap);
 
-      if (ret)
+      if (ret) {
+         errno = share_errno;
          return -1;
+      }
 
       return share_data.fd;
    } else {
