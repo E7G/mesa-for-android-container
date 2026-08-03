@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "drm-uapi/drm.h"
 #include "drm-uapi/drm_fourcc.h"
 #include <sys/sysinfo.h>
 
@@ -367,6 +368,15 @@ fd_init_screen_caps(struct fd_screen *screen)
    struct pipe_caps *caps = (struct pipe_caps *)&screen->base.caps;
 
    u_init_pipe_screen_caps(&screen->base, 1);
+
+   /* KGSL is not a DRM fd, so drmGetCap(DRM_CAP_PRIME) in
+    * u_init_pipe_screen_caps() cannot discover its dma-buf support.  The
+    * KGSL backend advertises the capability through fd_device features and
+    * implements importing with IOCTL_KGSL_GPUOBJ_IMPORT.  Propagate that
+    * capability so EGL exposes EGL_EXT_image_dma_buf_import.
+    */
+   if (fd_get_features(screen->dev) & FD_FEATURE_IMPORT_DMABUF)
+      caps->dmabuf |= DRM_PRIME_CAP_IMPORT;
 
    /* this is probably not totally correct.. but it's a start: */
 
