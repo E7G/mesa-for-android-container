@@ -2698,13 +2698,28 @@ dri2_initialize_wayland_drm(_EGLDisplay *disp)
    if (roundtrip(dri2_dpy) < 0)
       goto cleanup;
 
-   if (!dri2_initialize_wayland_drm_extensions(dri2_dpy)) {
-      if (disp->Options.Kgsl) {
-         dri2_dpy->fd_render_gpu = loader_open_device("/dev/kgsl-3d0");
-         using_kgsl = dri2_dpy->fd_render_gpu != -1;
-      } else {
-         goto cleanup;
+   if (!dri2_initialize_wayland_drm_extensions(dri2_dpy) &&
+       !disp->Options.Kgsl)
+      goto cleanup;
+
+   /* A Clover compositor has to expose a synthetic DRM render node so KWin can
+    * create its RenderDevice and linux-dmabuf feedback objects.  That node is
+    * not the Adreno GPU: opening it selects kms_swrast/llvmpipe.  A forced KGSL
+    * client must therefore ignore any fd learned from compositor feedback and
+    * render through the real GPU character device.  Its buffers are still
+    * submitted to the compositor with linux-dmabuf below. */
+   if (disp->Options.Kgsl) {
+      if (dri2_dpy->fd_render_gpu != -1) {
+         close(dri2_dpy->fd_render_gpu);
+         dri2_dpy->fd_render_gpu = -1;
       }
+      free(dri2_dpy->device_name);
+      dri2_dpy->device_name = NULL;
+
+      dri2_dpy->fd_render_gpu = loader_open_device("/dev/kgsl-3d0");
+      if (dri2_dpy->fd_render_gpu == -1)
+         goto cleanup;
+      using_kgsl = true;
    }
 
    /* On the kgsl stack the compositor advertises neither wl_drm nor a v4
@@ -2713,7 +2728,7 @@ dri2_initialize_wayland_drm(_EGLDisplay *disp)
     * Open the kgsl GPU node directly as a last resort so the native freedreno
     * GL driver still comes up instead of leaving fd = -1 (-> dri2 screen
     * creation fails, black window). */
-   if (dri2_dpy->fd_render_gpu == -1) {
+   if (!disp->Options.Kgsl && dri2_dpy->fd_render_gpu == -1) {
       dri2_dpy->fd_render_gpu = loader_open_device("/dev/kgsl-3d0");
       if (dri2_dpy->fd_render_gpu == -1)
          goto cleanup;
